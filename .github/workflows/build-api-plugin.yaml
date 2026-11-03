@@ -1,0 +1,166 @@
+# Reusable build workflow. Plugin repos call this after quality passes.
+# Builds an image, scans it with Trivy, uploads SARIF, then pushes to GHCR.
+# The push runs only after the scan succeeds.
+name: Build API Plugin
+
+on:
+  workflow_call:
+    inputs:
+      plugin_name:
+        description: "Package folder name under packages/ (example: plugin-alpha)"
+        required: true
+        type: string
+      node_version:
+        description: "Node.js version"
+        default: "22.x"
+        type: string
+      docker_registry:
+        description: "ghcr.io is the training default. dockerhub needs extra secrets."
+        default: "ghcr.io"
+        type: string
+      tag:
+        description: "Image tag. Defaults to the branch name."
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    name: Build ${{ inputs.plugin_name }}
+    outputs:
+      image_ref: ${{ steps.image.outputs.ref }}
+      trivy_result: ${{ steps.trivy.outcome }}
+
+    steps:
+      - name: Set image reference
+        id: image
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          PLUGIN_NAME: ${{ inputs.plugin_name }}
+          REGISTRY: ${{ inputs.docker_registry }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-$REF_NAME}"
+          if [ -z "$tag" ] || printf '%s' "$tag" | grep -q '[[:space:]]'; then
+            echo "Image tag is empty or contains whitespace." >&2
+            exit 1
+          fi
+          owner=$(printf '%s' "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
+          plugin=$(printf '%s' "$PLUGIN_NAME" | tr '[:upper:]' '[:lower:]')
+          case "$REGISTRY" in
+            ghcr.io)
+              name="ghcr.io/${owner}/${plugin}"
+              ;;
+            *)
+              echo "This training workflow publishes to ghcr.io. Got: ${REGISTRY}" >&2
+              exit 1
+              ;;
+          esac
+          {
+            echo "IMAGE_TAG<<EOF"
+            echo "$tag"
+            echo "EOF"
+            echo "IMAGE_NAME<<EOF"
+            echo "$name"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          {
+            echo "tag<<EOF"
+            echo "$tag"
+            echo "EOF"
+            echo "ref<<EOF"
+            echo "${name}:${tag}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout monorepo
+        uses: actions/checkout@v4
+        with:
+          repository: karam-sudo/karam-monorepo
+          ref: main
+          token: ${{ github.token }}
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          path: monorepo
+
+      - name: Checkout plugin
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          path: monorepo/packages/${{ inputs.plugin_name }}
+
+      - name: Checkout api-utils
+        uses: actions/checkout@v4
+        with:
+          repository: karam-sudo/karam-api-utils
+          ref: main
+          token: ${{ github.token }}
+          persist-credentials: false
+          fetch-depth: 1
+          path: monorepo/packages/api-utils
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image archive
+        uses: docker/build-push-action@v5
+        with:
+          context: monorepo/packages/${{ inputs.plugin_name }}
+          push: false
+          provenance: false
+          sbom: false
+          tags: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          outputs: type=docker,dest=${{ github.workspace }}/image.tar
+
+      - name: Trivy vulnerability scan
+        id: trivy
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          scan-type: image
+          input: ${{ github.workspace }}/image.tar
+          version: v0.76.1
+          scanners: vuln,secret
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          limit-severities-for-sarif: true
+          ignore-unfixed: true
+          exit-code: "1"
+          timeout: 10m
+          cache: "true"
+
+      - name: Upload SARIF to GitHub
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Login to GHCR
+        if: success()
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push scanned image
+        if: success()
+        run: |
+          set -euo pipefail
+          docker load -i "${{ github.workspace }}/image.tar"
+          docker image inspect "${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null
+          docker push "${IMAGE_NAME}:${IMAGE_TAG}"
+
+      - name: Remove image archive
+        if: always()
+        run: rm -f "${{ github.workspace }}/image.tar"

@@ -1,0 +1,35 @@
+# Copy to <plugin-repo>/.github/workflows/ci.yaml
+# Replace plugin-alpha with the package folder name.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+  security-events: write
+  packages: write
+
+jobs:
+  quality:
+    uses: karam-sudo/karam-monorepo/.github/workflows/quality-plugin.yaml@main
+    with:
+      plugin_name: plugin-alpha
+
+  pr-title:
+    if: github.event_name == 'pull_request'
+    uses: karam-sudo/karam-monorepo/.github/workflows/pr-title-plugin.yaml@main
+
+  build:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: quality
+    uses: karam-sudo/karam-monorepo/.github/workflows/build-api-plugin.yaml@main
+    with:
+      plugin_name: plugin-alpha
+      docker_registry: ghcr.io

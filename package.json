@@ -1,0 +1,8 @@
+{
+  "name": "karam-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Training monorepo for submodule pointers and secops workflows",
+  "repository": "https://github.com/karam-sudo/karam-monorepo",
+  "license": "MIT"
+}

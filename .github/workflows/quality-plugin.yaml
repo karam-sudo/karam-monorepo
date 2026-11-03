@@ -1,0 +1,98 @@
+# Reusable quality workflow. Plugin repos call this on pull requests and pushes.
+# Runs TypeScript, Prettier, and CodeQL against the caller repository.
+name: Quality — API Plugin
+
+on:
+  workflow_call:
+    inputs:
+      plugin_name:
+        description: "Package folder name under packages/ (example: plugin-alpha)"
+        required: true
+        type: string
+      node_version:
+        description: "Node.js version"
+        default: "22.x"
+        type: string
+      skip_codeql:
+        description: "Skip CodeQL for a faster check"
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    name: Lint & Type-check
+    steps:
+      - name: Checkout monorepo config
+        uses: actions/checkout@v4
+        with:
+          repository: karam-sudo/karam-monorepo
+          ref: main
+          token: ${{ github.token }}
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            packages/tsconfig.api.jsonc
+            package.json
+          path: monorepo
+
+      - name: Checkout plugin
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          path: monorepo/packages/${{ inputs.plugin_name }}
+
+      - name: Checkout api-utils
+        uses: actions/checkout@v4
+        with:
+          repository: karam-sudo/karam-api-utils
+          ref: main
+          token: ${{ github.token }}
+          persist-credentials: false
+          fetch-depth: 1
+          path: monorepo/packages/api-utils
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Install, type-check, and format
+        working-directory: monorepo/packages/${{ inputs.plugin_name }}
+        run: |
+          set -euo pipefail
+          npm ci
+          npx tsc --noEmit --pretty
+          npx prettier --check "src/**/*.{ts,js,json}"
+
+  codeql:
+    if: ${{ !inputs.skip_codeql }}
+    runs-on: ubuntu-latest
+    name: CodeQL Security Scan
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"

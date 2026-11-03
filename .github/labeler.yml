@@ -1,0 +1,34 @@
+ci:
+  - changed-files:
+      - any-glob-to-any-file: ".github/**"
+
+secops:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/codeql.yaml"
+          - ".github/workflows/quality-plugin.yaml"
+          - ".github/workflows/build-api-plugin.yaml"
+
+api-utils:
+  - changed-files:
+      - any-glob-to-any-file: "packages/api-utils/**"
+
+plugin:
+  - changed-files:
+      - any-glob-to-any-file: "packages/plugin-*/**"
+
+scripts:
+  - changed-files:
+      - any-glob-to-any-file: "scripts/**"
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/package.json"
+          - "**/package-lock.json"
+          - ".github/dependabot.yml"

@@ -1,0 +1,28 @@
+name: Submodule pointers
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gitlinks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Require a gitlink for each packages submodule
+        run: |
+          set -euo pipefail
+          test -f .gitmodules
+          git config -f .gitmodules --get-regexp '^submodule\..*\.path$' | awk '{print $2}' | while read -r path; do
+            mode=$(git ls-tree HEAD "$path" | awk '{print $1}')
+            echo "$path mode=$mode"
+            test "$mode" = "160000"
+          done
