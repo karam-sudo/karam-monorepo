@@ -17,4 +17,4 @@ Package CI example: [../samples/plugin-ci.yaml](../samples/plugin-ci.yaml).
 
 Trivy uses the same gate as production: fixed `HIGH` and `CRITICAL` fail the job, and the image is pushed only after that scan succeeds. The training image is `FROM scratch`, so the first scan is clean. Change the package `Dockerfile` to `node:22-bookworm-slim` when you want to see the gate stop the push.
 
-These repos are public so CodeQL and Trivy SARIF uploads work on a personal account. A private repo needs GitHub code scanning enabled before the upload step can succeed.
+The repos are private. Package workflows pass `GH_ACTION_TOKEN` so Actions can read the other private repos. CodeQL and Trivy SARIF uploads also need GitHub Code Security on those private repos.

@@ -21,6 +21,8 @@ jobs:
     uses: karam-sudo/karam-monorepo/.github/workflows/quality-plugin.yaml@main
     with:
       plugin_name: plugin-alpha
+    secrets:
+      GH_ACTION_TOKEN: ${{ secrets.GH_ACTION_TOKEN }}
 
   pr-title:
     if: github.event_name == 'pull_request'
@@ -33,3 +35,5 @@ jobs:
     with:
       plugin_name: plugin-alpha
       docker_registry: ghcr.io
+    secrets:
+      GH_ACTION_TOKEN: ${{ secrets.GH_ACTION_TOKEN }}

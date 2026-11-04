@@ -62,4 +62,4 @@ Workflow map: [.github/workflows/README.md](.github/workflows/README.md).
 - Trivy fails the build on fixed HIGH or CRITICAL findings. The sample image is `FROM scratch`, so the first run is clean.
 - To watch the gate block a push, change `packages/plugin-alpha/Dockerfile` to `FROM node:22-bookworm-slim` in the plugin repo and push `main`.
 
-Repos are public so code scanning and SARIF upload work on a personal GitHub account.
+The three GitHub repos are private. Cross-repo checkout uses a `GH_ACTION_TOKEN` secret on the plugin repo. Code scanning alerts on a private personal repo need GitHub Code Security enabled.

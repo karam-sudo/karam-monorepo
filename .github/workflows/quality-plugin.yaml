@@ -17,6 +17,10 @@ on:
         description: "Skip CodeQL for a faster check"
         default: false
         type: boolean
+    secrets:
+      GH_ACTION_TOKEN:
+        description: "PAT with repo scope. Required to read the other private repos."
+        required: true
 
 permissions:
   contents: read
@@ -33,7 +37,7 @@ jobs:
         with:
           repository: karam-sudo/karam-monorepo
           ref: main
-          token: ${{ github.token }}
+          token: ${{ secrets.GH_ACTION_TOKEN }}
           persist-credentials: false
           submodules: false
           fetch-depth: 1
@@ -54,7 +58,7 @@ jobs:
         with:
           repository: karam-sudo/karam-api-utils
           ref: main
-          token: ${{ github.token }}
+          token: ${{ secrets.GH_ACTION_TOKEN }}
           persist-credentials: false
           fetch-depth: 1
           path: monorepo/packages/api-utils
