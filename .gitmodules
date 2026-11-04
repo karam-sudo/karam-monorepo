@@ -1,0 +1,6 @@
+[submodule "packages/api-utils"]
+	path = packages/api-utils
+	url = git@github.com:karam-sudo/karam-api-utils.git
+[submodule "packages/plugin-alpha"]
+	path = packages/plugin-alpha
+	url = git@github.com:karam-sudo/karam-plugin-alpha.git
