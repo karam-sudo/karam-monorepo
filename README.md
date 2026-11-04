@@ -22,6 +22,10 @@ karam-monorepo/
 └── scripts/health.js      # small JS file so parent CodeQL has code to scan
 ```
 
+Full create, link, and push steps: [SUBMODULES.md](SUBMODULES.md).
+
+What each workflow does: [WORKFLOWS.md](WORKFLOWS.md).
+
 ## Match what `main` records
 
 ```bash
