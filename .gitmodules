@@ -4,3 +4,6 @@
 [submodule "packages/plugin-alpha"]
 	path = packages/plugin-alpha
 	url = git@github.com:karam-sudo/karam-plugin-alpha.git
+[submodule "packages/plugin-beta"]
+	path = packages/plugin-beta
+	url = git@github.com:karam-sudo/karam-plugin-beta.git
