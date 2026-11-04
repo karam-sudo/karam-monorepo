@@ -63,3 +63,4 @@ Workflow map: [.github/workflows/README.md](.github/workflows/README.md).
 - To watch the gate block a push, change `packages/plugin-alpha/Dockerfile` to `FROM node:22-bookworm-slim` in the plugin repo and push `main`.
 
 The three GitHub repos are private. Cross-repo checkout uses a `GH_ACTION_TOKEN` secret on the plugin repo. Code scanning alerts on a private personal repo need GitHub Code Security enabled.
+pr lab
