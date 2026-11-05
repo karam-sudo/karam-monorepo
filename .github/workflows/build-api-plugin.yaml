@@ -1,31 +1,46 @@
-# Reusable build workflow. Plugin repos call this after quality passes.
-# Builds an image, scans it with Trivy, uploads SARIF, then pushes to GHCR.
-# The push runs only after the scan succeeds.
+# Reusable workflow: build, scan, then push an API plugin image.
+# Called by each plugin repo's CI workflow.
+#
+# Callers must grant the token this workflow declares. The effective token is
+# the intersection of the caller permissions and the block below:
+#
+#   permissions:
+#     contents: read
+#     actions: read
+#     security-events: write
+#     packages: write   # required only when docker_registry is ghcr.io
+#
+# Code scanning must be enabled on the caller repo or the SARIF upload fails.
+# Docker Hub tags are karam/<plugin>:<tag>. GHCR tags are
+# ghcr.io/<caller-owner>/<plugin>:<tag>.
 name: Build API Plugin
 
 on:
   workflow_call:
     inputs:
       plugin_name:
-        description: "Package folder name under packages/ (example: plugin-alpha)"
+        description: "Plugin package name (e.g., plugin-alpha)"
         required: true
         type: string
       node_version:
-        description: "Node.js version"
+        description: "Node.js version (22.x)"
         default: "22.x"
         type: string
       docker_registry:
-        description: "ghcr.io is the training default. dockerhub needs extra secrets."
+        description: "Docker registry (dockerhub or ghcr.io)"
         default: "ghcr.io"
         type: string
       tag:
-        description: "Image tag. Defaults to the branch name."
+        description: "Docker image tag (defaults to branch name)"
         default: ""
         type: string
     secrets:
       GH_ACTION_TOKEN:
-        description: "PAT with repo scope. Required to read the other private repos."
         required: true
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -57,14 +72,17 @@ jobs:
             echo "Image tag is empty or contains whitespace." >&2
             exit 1
           fi
-          owner=$(printf '%s' "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
-          plugin=$(printf '%s' "$PLUGIN_NAME" | tr '[:upper:]' '[:lower:]')
           case "$REGISTRY" in
+            dockerhub|docker.io)
+              name="karam/${PLUGIN_NAME}"
+              ;;
             ghcr.io)
+              owner=$(printf '%s' "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
+              plugin=$(printf '%s' "$PLUGIN_NAME" | tr '[:upper:]' '[:lower:]')
               name="ghcr.io/${owner}/${plugin}"
               ;;
             *)
-              echo "This training workflow publishes to ghcr.io. Got: ${REGISTRY}" >&2
+              echo "Unsupported docker_registry: ${REGISTRY}" >&2
               exit 1
               ;;
           esac
@@ -74,6 +92,9 @@ jobs:
             echo "EOF"
             echo "IMAGE_NAME<<EOF"
             echo "$name"
+            echo "EOF"
+            echo "PLUGIN_NAME<<EOF"
+            echo "$PLUGIN_NAME"
             echo "EOF"
           } >> "$GITHUB_ENV"
           {
@@ -85,6 +106,8 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # persist-credentials must stay false. The default writes the PAT into
+      # .git/config as a base64 Authorization header, and the image build copies that file.
       - name: Checkout monorepo
         uses: actions/checkout@v4
         with:
@@ -113,9 +136,43 @@ jobs:
           fetch-depth: 1
           path: monorepo/packages/api-utils
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ inputs.plugin_name }}-${{ hashFiles(format('monorepo/packages/{0}/package-lock.json', inputs.plugin_name)) }}
+          restore-keys: |
+            npm-${{ inputs.plugin_name }}-
+
+      - name: Install plugin dependencies
+        working-directory: monorepo/packages/${{ inputs.plugin_name }}
+        run: |
+          set -euo pipefail
+          npm ci
+
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Drop .git before the build context is packed. checkout used to leave
+      # the PAT in packages/*/.git/config, and the image build can copy it.
+      - name: Strip git metadata from image context
+        working-directory: monorepo/packages/${{ inputs.plugin_name }}
+        run: |
+          set -euo pipefail
+          find . -name .git -prune -exec rm -rf {} +
+          find . -name .gitconfig -delete
+          if grep -RIl --binary-files=without-match -E 'x-access-token:|AUTHORIZATION: basic |github_pat_|ghp_' . ; then
+            echo "Git credentials are still in the Docker context. Refusing to build."
+            exit 1
+          fi
+
+      # Export a single-platform docker archive. Trivy scans this file before
+      # any registry push. provenance is off so the archive stays a plain image.
       - name: Build image archive
         uses: docker/build-push-action@v5
         with:
@@ -125,7 +182,11 @@ jobs:
           sbom: false
           tags: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           outputs: type=docker,dest=${{ github.workspace }}/image.tar
+          cache-from: type=gha,scope=${{ inputs.plugin_name }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.plugin_name }}
 
+      # Gate on fixed HIGH/CRITICAL only. SARIF lists the same severities
+      # as the gate (limit-severities-for-sarif).
       - name: Trivy vulnerability scan
         id: trivy
         uses: aquasecurity/trivy-action@v0.35.0
@@ -149,14 +210,23 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
+      - name: Login to DockerHub
+        if: success() && (inputs.docker_registry == 'dockerhub' || inputs.docker_registry == 'docker.io')
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Login to GHCR
-        if: success()
+        if: success() && inputs.docker_registry == 'ghcr.io'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Push the archive Trivy scanned. A second build in this job would not
+      # see the cache exported above, so the published bytes could differ.
       - name: Push scanned image
         if: success()
         run: |
