@@ -1,4 +1,4 @@
-# Reusable workflow: build, scan, then push an API plugin image.
+# Reusable workflow: scan source, build, scan the image, then push an API plugin image.
 # Called by each plugin repo's CI workflow.
 #
 # Callers must grant the token this workflow declares. The effective token is
@@ -135,6 +135,34 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
           path: monorepo/packages/api-utils
+
+      # Files on disk, before npm ci adds node_modules. The plugin checkout
+      # is not the workspace git root, so this uses the CLI instead of
+      # gitleaks-action, which only scans that root and the push commits.
+      - name: Gitleaks secret scan
+        working-directory: monorepo/packages/${{ inputs.plugin_name }}
+        run: |
+          set -euo pipefail
+          version=8.30.1
+          archive="/tmp/gitleaks.tar.gz"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" -o "$archive"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C /tmp gitleaks
+          /tmp/gitleaks detect \
+            --no-git \
+            --source . \
+            --redact \
+            --exit-code 1 \
+            --report-format sarif \
+            --report-path "${{ github.workspace }}/gitleaks-results.sarif" \
+            --verbose
+
+      - name: Upload Gitleaks SARIF
+        if: always() && hashFiles('gitleaks-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks-results.sarif
+          category: gitleaks
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
