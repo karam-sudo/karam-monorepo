@@ -6,11 +6,12 @@
 #
 #   permissions:
 #     contents: read
-#     actions: read
+#     actions: write     # required to attach the scan reports as artifacts
 #     security-events: write
 #     packages: write   # required only when docker_registry is ghcr.io
 #
-# Code scanning must be enabled on the caller repo or the SARIF upload fails.
+# Scan reports are attached to the Actions run. Code scanning upload is
+# optional and does not fail the job when the private repo has no Code Security.
 # Docker Hub tags are karam/<plugin>:<tag>. GHCR tags are
 # ghcr.io/<caller-owner>/<plugin>:<tag>.
 name: Build API Plugin
@@ -44,7 +45,7 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
   security-events: write
   packages: write
 
@@ -157,8 +158,18 @@ jobs:
             --report-path "${{ github.workspace }}/gitleaks-results.sarif" \
             --verbose
 
+      - name: Upload Gitleaks report
+        if: always() && hashFiles('gitleaks-results.sarif') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-${{ inputs.plugin_name }}
+          path: gitleaks-results.sarif
+          retention-days: 30
+          if-no-files-found: ignore
+
       - name: Upload Gitleaks SARIF
         if: always() && hashFiles('gitleaks-results.sarif') != ''
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: gitleaks-results.sarif
@@ -232,8 +243,18 @@ jobs:
           timeout: 10m
           cache: "true"
 
+      - name: Upload Trivy report
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ inputs.plugin_name }}
+          path: trivy-results.sarif
+          retention-days: 30
+          if-no-files-found: ignore
+
       - name: Upload SARIF to GitHub
         if: always() && hashFiles('trivy-results.sarif') != ''
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
